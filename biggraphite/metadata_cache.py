@@ -166,7 +166,7 @@ class DiskCache(object):
             self.miss_count += 1
             with self.__accessor_lock:
                 metadata = self.__accessor.get_metric(metric_name)
-            self._cache(metric_name, metadata)
+            self._cache(encoded_metric_name, metadata)
 
         if metadata:
             return bg_accessor.Metric(metric_name, metadata)
