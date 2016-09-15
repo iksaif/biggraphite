@@ -7,22 +7,29 @@ Through this module, a "query" is "the name of a query", a string.
 from __future__ import unicode_literals
 from __future__ import absolute_import
 from __future__ import print_function
-import argparse
-import urllib2
-import json
-import base64
-import time
-import sys
-import urllib
-import collections
-import progressbar
-import operator
+
+import os.path
 import abc
+import argparse
+import base64
+import collections
+import jinja2
+import json
 import netrc
+import operator
+import progressbar
+import sys
+import time
+import urllib
+import urllib2
 
 
 class Error(Exception):
     """Error."""
+
+
+class ConfigError(Error):
+    """ConfigError."""
 
 
 class RequestError(Error):
@@ -255,13 +262,18 @@ class Printer(object):
         """
         pass
 
+    @abc.abstractmethod
+    def flush(self):
+        """Flushes all output."""
+        pass
+
 
 class TxtPrinter(Printer):
     """TxtPrinter."""
 
-    def __init__(self, file=None):
+    def __init__(self, fp=None):
         """Create a txt Printer."""
-        self._file = file or sys.stdout
+        self._file = fp or sys.stdout
 
     def _print(self, *args, **kwargs):
         """Print in a given file."""
@@ -328,7 +340,7 @@ class TxtPrinter(Printer):
         all_query_dissymmetries_count = len(query_dissymmetries)
         query_dissymmetries = [query_dissymmetry
                                for query_dissymmetry in query_dissymmetries if query_dissymmetry]
-        self._print("\nThere was %s queries with empty response on both clusters." % (
+        self._print("\nThere were %s queries with empty response on both clusters." % (
             all_query_dissymmetries_count - len(query_dissymmetries)))
 
         query_dissymmetries = sorted(
@@ -397,6 +409,83 @@ class TxtPrinter(Printer):
                 self._print("\n\tThe %s slowest queries : " % show_max)
                 for (query, time_s) in query_time_s:
                     self._print("\t > %s : %s" % (query, time_s))
+
+    def flush(self):
+        self._file.flush()
+
+
+class HtmlPrinter(Printer):
+    """HTML Printer."""
+
+    def __init__(self, fp=None):
+        """Create a txt Printer."""
+        self._file = fp or sys.stdout
+        self._template = os.path.join(
+            os.path.dirname(__file__), "cluster-diff-template.jinja")
+        self._context = {}
+        print (self._template)
+
+    def print_parameters(self, opts):
+        """Print all parameters of the script."""
+        self._context["opts"] = opts
+        self._context["cmdline"] = " ".join(sys.argv)
+
+    def print_dissymetry_results(self, query_dissymmetries, query_to_target_dissymmetries,
+                                 verbosity, show_max):
+        """Print all percentiles per query and per target.
+
+        The list is limited with the show_max parameter
+        and target percentiles are shown only if the verbose parameter is True.
+        """
+        self._print(self._format_header("Comparison results"))
+
+        data = {}
+
+        all_query_dissymmetries_count = len(query_dissymmetries)
+        query_dissymmetries = [query_dissymmetry
+                               for query_dissymmetry in query_dissymmetries if query_dissymmetry]
+        data["empty_responses_both"] = all_query_dissymmetries_count - len(query_dissymmetries)
+
+        query_dissymmetries = sorted(
+            query_dissymmetries, key=Dissymmetry.get_99th, reverse=True)
+        del query_dissymmetries[show_max:]
+
+        self._print("\nThe %s most dissymmetrical queries : " % show_max)
+        self._print("%s for : " % Printer.QUERY_PCTLS_DESCRIPTION)
+        for query_dissymmetry in query_dissymmetries:
+            self._print_pctls(query_dissymmetry.name,
+                              query_dissymmetry.pctls,
+                              "query", chip=">")
+
+            if verbosity >= 1:
+                self._print("\n\tThe %s most dissymmetrical targets : " % show_max)
+                self._print("\t%s for : " % Printer.TARGET_PCTLS_DESCRIPTION)
+                for target_dissymmetry in query_to_target_dissymmetries[query_dissymmetry.name]:
+                    self._print_pctls(target_dissymmetry.name,
+                                      target_dissymmetry.pctls,
+                                      "target", chip=">>", delay="\t")
+
+    def print_errors(self, hosts, error_counts_tuple, error_to_queries_tuple, verbosity):
+        """Print per host the number of errors and the number of occurrences of errors.
+
+        If the verbose parameter is True,
+        the list of queries affected are printed after each error.
+        """
+        pass
+
+    def print_times(self, hosts, timing_pctls_tuple, query_to_time_s_tuple, verbosity, show_max):
+        """Print per host the durations percentiles for fetching queries.
+
+        If the verbose parameter is True, the list of the slowest queries is printed,
+        limited with the show_max parameter.
+        """
+        pass
+
+    def flush(self):
+        template = jinja2.Template(open(self._template).read())
+        html = template.render(**self._context)
+        self._file.write(html)
+        self._file.flush()
 
 
 def _read_queries(filename):
@@ -523,15 +612,18 @@ def _parse_opts(args):
     outputs_params.add_argument("--output-file", metavar="FILENAME", dest="output_filename",
                                 action="store", help="file containing outputs (default: stdout)",
                                 default="")
+    outputs_params.add_argument("--output-format", metavar="FORMAT", default="text",
+                                help="Output format (text, html).")
     outputs_params.add_argument("-v", "--verbosity", action="count",  default=0,
                                 help="increases verbosity, can be passed multiple times")
     outputs_params.add_argument(
         "--show-max", metavar="N_LINES", dest="show_max", type=int, default=5,
         help="truncate the number of shown dissymmetry in outputs (default: %(default)s)")
 
-    # TODO (t.chataigner) enable several kind of outputs : txt, csv, html...
-
     opts = parser.parse_args(args)
+
+    if opts.output_format not in ("text", "html"):
+        raise ConfigError("Invalid output format: '%s'" % opts.output_format)
 
     # compute authentication keys from netrc file
     opts.auth_keys = []
@@ -599,7 +691,16 @@ def main(args=None):
         )
 
     # print outputs
-    printer = TxtPrinter()
+    if opts.output_filename:
+        fp = open(opts.output_filename, "w")
+    else:
+        fp = sys.stdout
+
+    if opts.output_format == "text":
+        printer = TxtPrinter(fp=fp)
+    else:
+        printer = HtmlPrinter(fp=fp)
+
     printer.print_parameters(opts)
 
     printer.print_times(
@@ -610,6 +711,8 @@ def main(args=None):
 
     printer.print_dissymetry_results(
         query_dissymmetries, query_to_target_dissymmetries, opts.verbosity, opts.show_max)
+
+    printer.flush()
 
 
 if __name__ == "__main__":

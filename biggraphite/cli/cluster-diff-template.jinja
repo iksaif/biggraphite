@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="">
+  <meta name="author" content="">
+  <title>Report for {{hosts}}</title>
+
+  <!-- Bootstrap Core CSS -->
+  <link href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css" rel="stylesheet">
+
+  <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
+  <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
+  <!--[if lt IE 9]>
+      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
+      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+  <div id="wrapper">
+    <!-- Page Content -->
+    <div id="page-content-wrapper">
+      <div class="container-fluid">
+        <div class="row">
+          <h1>Report for {{hosts}}</h1>
+          <div class="panel panel-default">
+            <div class="panel-heading">Settings</div>
+            <div class="panel-body">
+              <button class="btn btn-primary" type="button">
+                Hosts
+                <span class="badge">
+                  {{ opts.hosts }}
+                </span>
+              </button>
+              <button class="btn btn-primary" type="button">
+                From
+                <span class="badge">
+                  {{ opts.from_param }}
+                </span>
+              </button>
+              <button class="btn btn-primary" type="button">
+                Until
+                <span class="badge">
+                  {{ opts.until_param }}
+                </span>
+              </button>
+              <button class="btn btn-primary" type="button">
+                Thresholds
+                <span class="badge">
+                  {{ opts.threshold }}
+                </span>
+              </button>
+              <p>
+                <div class="panel panel-primary">
+                  <div class="panel-heading">Command Line</div>
+                  <div class="panel-body">
+                    <code>{{cmdline}}</code>
+                  </div>
+                </div>
+              </p>
+            </div>
+          </div>
+
+          {% for result in results %}
+          {% if result.percentage_non_equal > 5 or result.average_distance > 5 %}
+
+          <div class="panel panel-danger">
+            <div class="panel-heading">{{ result.query }}</div>
+            <div class="panel-body">
+              {{ result }}
+            </div>
+            <div class="panel-body">
+              <p>
+                <a href="http://{{hosts.0}}{{result.uri}}">
+                  <img src="http://{{hosts.0}}{{result.uri}}" />
+                </a>
+                <a href="http://{{hosts.1}}{{result.uri}}">
+                  <img src="http://{{hosts.1}}{{result.uri}}" />
+                </a>
+              </p>
+            </div>
+          </div>
+          {% endif %}
+          {% endfor %}
+
+          <div class="panel panel-default">
+            <div class="panel-heading">All queries</div>
+            <div class="panel-body">
+              <p>TBD</p>
+            </div>
+            <table class="table table-condensed table-hover">
+              <thead>
+                <tr>
+                  <th>Query</th>
+                  <th>Non-Equal Points</th>
+                  <th>Distance</th>
+                  <th>Links</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for result in results %}
+                {% if result.percentage_non_equal > 1 or result.average_distance > 1 %}
+                <tr class="danger">
+                {% else %}
+                <tr>
+                {% endif %}
+                  <td>
+                    <code>{{ result.query }}</code>
+                  </td>
+                  <td>{{ result.percentage_non_equal }}</td>
+                  <td>{{ result.average_distance }}</td>
+                  <td>
+                    <a href="http://{{hosts.0}}{{result.uri}}">a</a>
+                    <a href="http://{{hosts.1}}{{result.uri}}">b</a>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- /#page-content-wrapper -->
+
+  </div>
+  <!-- /#wrapper -->
+
+  <!-- jQuery -->
+  <script src="https://code.jquery.com/jquery-3.0.0.min.js"></script>
+
+  <!-- Bootstrap Core JavaScript -->
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/js/bootstrap.min.js"></script>
+</body>
+</html>
