@@ -264,7 +264,7 @@ class TestAccessorWithCassandra(bg_test_utils.TestCaseWithAccessor):
         self.accessor.create_metric(metric)
         self.accessor.create_metric(metric_1)
         self.assertEqual(['a.b.c'], self.accessor.glob_metric_names("a.b.*"))
-
+        self.assertNotEqual(None, self.accessor.get_metric("a.b..c"))
         self.accessor.insert_points(metric, points)
         actual_points = self.accessor.fetch_points(metric, 1, 2, stage=metric.retention[0])
         self.assertEqual(points, list(actual_points))

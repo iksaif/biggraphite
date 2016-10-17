@@ -745,6 +745,7 @@ class _CassandraAccessor(bg_accessor.Accessor):
     def get_metric(self, metric_name):
         """See bg_accessor.Accessor."""
         super(_CassandraAccessor, self).get_metric(metric_name)
+        metric_name = ".".join(self._components_from_name(metric_name)[:-1])
         metric_name = bg_accessor.encode_metric_name(metric_name)
         result = self._select_metric(metric_name)
         if not result:
