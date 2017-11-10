@@ -16,10 +16,10 @@
 from __future__ import absolute_import  # Otherwise graphite is this module.
 
 
-from graphite.tags import utils
+from graphite.tags import base
 
 
-class BigGraphiteTagDB(utils.BaseTagDB):
+class BigGraphiteTagDB(base.BaseTagDB):
     """TagDB using BigGraphite."""
 
     def __init__(self, accessor=None, metadata_cache=None):
@@ -149,3 +149,13 @@ class BigGraphiteTagDB(utils.BaseTagDB):
         Accepts a series string and returns True.
         """
         return []
+
+    def auto_complete_tags(self, exprs, tagPrefix=None, limit=None):
+        """Auto complete tags."""
+        from graphite.tags import autocomplete
+        return autocomplete.auto_complete_tags(self, exprs, tagPrefix=tagPrefix, limit=limit)
+
+    def auto_complete_values(self, exprs, tag, tagPrefix=None, limit=None):
+        """Auto complete values."""
+        from graphite.tags import autocomplete
+        return autocomplete.auto_complete_values(self, exprs, tag, tagPrefix=tagPrefix, limit=limit)
