@@ -59,34 +59,32 @@ class Reader(BaseReader):
     """As per the Graphite API, fetches points for and metadata for a given metric."""
 
     __slots__ = (
-        "_accessor", "_metadata_cache", "_carbonlink",
-        "_metric", "_metric_name", )
+        "_accessor", "_carbonlink",
+        "metric", "metric_name", )
 
-    def __init__(self, accessor, metadata_cache, carbonlink, metric_name):
+    def __init__(self, accessor, carbonlink, metric_name, metric=None):
         """Create a new reader."""
         assert accessor
-        assert metadata_cache
 
         self._accessor = accessor
-        self._metadata_cache = metadata_cache
         self._carbonlink = carbonlink
-        self._metric = None
-        self._metric_name = metric_name
+        self.metric = metric
+        self.metric_name = metric_name
 
     def __get_cached_datapoints(self, stage):
         cached_datapoints = []
         try:
             # TODO: maybe this works with non stage0 now, need to check.
             if stage.stage0 and self._carbonlink:
-                cached_datapoints = self._carbonlink.query(self._metric_name)
+                cached_datapoints = self._carbonlink.query(self.metric_name)
         except Exception:
-            log.exception("Failed CarbonLink query '%s'" % self._metric_name)
+            log.exception("Failed CarbonLink query '%s'" % self.metric_name)
         return cached_datapoints
 
     def __get_metadata(self):
         self.__refresh_metric()
-        if self._metric is not None:
-            return self._metric.metadata
+        if self.metric is not None:
+            return self.metric.metadata
         else:
             return bg_accessor.MetricMetadata()
 
@@ -100,14 +98,14 @@ class Reader(BaseReader):
             start_time, end_time, now, shift=shift)
 
     def __refresh_metric(self):
-        """Set self._metric."""
+        """Set self.metric."""
         # TODO: This can be blocking, so we need to do one of:
         # - forward metadata to the constructor (possibly by adding mget
         #   to the metadata cache and the accessor)
         # - make fetch_async really async
         # - use a thread pool in `fetch_multi`
-        if self._metric is None:
-            self._metric = self._metadata_cache.get_metric(self._metric_name)
+        if self.metric is None:
+            self.metric = self._accessor.get_metric(self.metric_name)
 
     def _merge_cached_points(self, stage, start, step, aggregation_method,
                              points, cached_datapoints, raw_step=None):
@@ -135,7 +133,7 @@ class Reader(BaseReader):
         """
         fetch_start = time.time()
         log.rendering('fetch(%s, %d, %d) - start' % (
-            self._metric_name, start_time, end_time))
+            self.metric_name, start_time, end_time))
 
         self.__refresh_metric()
         if now is None:
@@ -150,13 +148,13 @@ class Reader(BaseReader):
         aggregation_method = metadata.aggregator.carbon_name
         raw_step = metadata.retention.stage0.precision
 
-        if not self._metric:
+        if not self.metric:
             # The metric doesn't exist, let's fail gracefully.
             ts_and_points = []
         else:
             # This returns a generator which we can iterate on later.
             ts_and_points = self._accessor.fetch_points(
-                self._metric, start_time, end_time, stage)
+                self.metric, start_time, end_time, stage)
 
         def read_points():
             read_start = time.time()
@@ -179,12 +177,12 @@ class Reader(BaseReader):
             now = time.time()
             log.rendering(
                 'fetch(%s, %d, %d) - %d points - read: %f secs - total: %f secs' % (
-                    self._metric_name, start_time, end_time, len(points),
+                    self.metric_name, start_time, end_time, len(points),
                     now - read_start, now - fetch_start))
             return (start_time, end_time, stage.precision), points
 
         log.rendering('fetch(%s, %d, %d) - started' % (
-            self._metric_name, start_time, end_time))
+            self.metric_name, start_time, end_time))
 
         return read_points
 
@@ -232,18 +230,15 @@ class Finder(BaseFinder):
 
     local = False
 
-    def __init__(self, directories=None, accessor=None,
-                 metadata_cache=None, carbonlink=None):
+    def __init__(self, directories=None, accessor=None, carbonlink=None):
         """Build a new finder.
 
         Args:
           directories: Ignored (here only for compatibility)
           accessor: Accessor for injection (e.g. for testing, not used by Graphite)
-          metadata_cache: Cache (for injection)
           carbonlink: Carbonlink (for injection)
         """
         self._accessor = accessor
-        self._cache = metadata_cache
         self._carbonlink = carbonlink
         self._django_cache = None
         self._cache_timeout = None
@@ -287,18 +282,6 @@ class Finder(BaseFinder):
         if self._carbonlink == _DISABLED:
             return None
         return self._carbonlink
-
-    def cache(self):
-        """Return a metadata cache."""
-        with self._lock:
-            if not self._cache:
-                # TODO: Allow to use Django's cache.
-                from django.conf import settings as django_settings
-                cache = graphite_utils.cache_from_settings(
-                    self.accessor(), django_settings)
-                cache.open()
-                self._cache = cache
-        return self._cache
 
     def django_cache(self):
         """Return the django cache."""
@@ -344,12 +327,15 @@ class Finder(BaseFinder):
         if not cache_hit:
             self.django_cache().set(cache_key, (success, results), self._cache_timeout)
 
+        # Also cache exceptions.
         if not success:
             raise results
 
         metric_names, directories = results
 
         for metric_name in metric_names:
+            # We don't fetch the metric here because the readers are
+            # used only when called by `fetch()`.
             reader = Reader(
                 self.accessor(), self.cache(), self.carbonlink(), metric_name
             )
@@ -389,14 +375,25 @@ class Finder(BaseFinder):
         # means that we need to create accessor.fetch_point_sync(). Check
         # how the concurrent executor works before doing any work.
 
-        # In order to be a little bit more efficient with Graphite 1.1.0 we
-        # first schedule all the queries, then read the results as they come.
-        queries_and_generators = []
+        results = {}
 
         for n, query in self.find_multi(queries):
             if not isinstance(n, node.LeafNode):
                 continue
 
+            # Filter out non-leaf and index per metric name.
+            results[n.reader.metric_name].append((n, query))
+
+        # Now fetch all the metric metadata at once.
+        # FIXME: do it.
+        for metric in metrics:
+            results[metric.name][0].reader.metric = metric
+
+
+        # In order to be a little bit more efficient with Graphite 1.1.0 we
+        # first schedule all the queries, then read the results as they come.
+        queries_and_generators = []
+        for n, query in results:
             # Call directly the async method
             gen = n.reader.fetch_async(
                 start_time, end_time,

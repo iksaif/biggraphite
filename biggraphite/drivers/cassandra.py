@@ -1125,11 +1125,9 @@ class _CassandraAccessor(bg_accessor.Accessor):
 
     def make_metric(self, name, metadata):
         """See bg_accessor.Accessor."""
-        # Cleanup name (avoid double dots)
-        name = ".".join(self._components_from_name(name)[:-1])
-        encoded_name = bg_accessor.encode_metric_name(name)
-        id = uuid.uuid5(self._UUID_NAMESPACE, encoded_name)
-        return bg_accessor.Metric(name, id, metadata)
+        metric_name = self._clean_and_encode(metric_name)
+        uid = uuid.uuid5(self._UUID_NAMESPACE, encoded_name)
+        return bg_accessor.Metric(name, uid, metadata)
 
     def create_metric(self, metric):
         """See bg_accessor.Accessor."""
@@ -1176,10 +1174,7 @@ class _CassandraAccessor(bg_accessor.Accessor):
             raise InvalidArgumentError(
                 "Unknown metric '%s'" % name)
 
-        # Cleanup name (avoid double dots)
-        name = ".".join(self._components_from_name(name)[:-1])
-
-        encoded_metric_name = bg_accessor.encode_metric_name(name)
+        encoded_metric_name = self._clean_and_encode(metric_name)
         metadata_dict = updated_metadata.as_string_dict()
         self._execute_metadata(
             self.__update_metric_metadata_statement,
@@ -1222,6 +1217,12 @@ class _CassandraAccessor(bg_accessor.Accessor):
         res = metric_name.split(".")
         res.append(_LAST_COMPONENT)
         return list(filter(None, res))
+
+    @staticmethod
+    def _clean_and_encode(metric_name):
+        # This removes potential double dots.
+        metric_name = ".".join(self._components_from_name(metric_name)[:-1])
+        return bg_accessor.encode_metric_name(metric_name)
 
     def drop_all_metrics(self):
         """See bg_accessor.Accessor."""
@@ -1332,8 +1333,7 @@ class _CassandraAccessor(bg_accessor.Accessor):
     def has_metric(self, metric_name):
         """See bg_accessor.Accessor."""
         super(_CassandraAccessor, self).has_metric(metric_name)
-        metric_name = ".".join(self._components_from_name(metric_name)[:-1])
-        metric_name = bg_accessor.encode_metric_name(metric_name)
+        metric_name = self._clean_and_encode(metric_name)
         if not self._select_metric(metric_name):
             return False
 
@@ -1372,8 +1372,7 @@ class _CassandraAccessor(bg_accessor.Accessor):
     def get_metric(self, metric_name, touch=False):
         """See bg_accessor.Accessor."""
         super(_CassandraAccessor, self).get_metric(metric_name, touch=touch)
-        metric_name = ".".join(self._components_from_name(metric_name)[:-1])
-        metric_name = bg_accessor.encode_metric_name(metric_name)
+        metric_name = self._clean_and_encode(metric_name)
         result = self._select_metric(metric_name)
         if not result:
             return None
@@ -1391,6 +1390,10 @@ class _CassandraAccessor(bg_accessor.Accessor):
         metadata = bg_accessor.MetricMetadata.from_string_dict(config)
         return bg_accessor.Metric(metric_name, uid, metadata)
 
+    def get_metrics(self, metric_names, touch=False):
+        """See bg_accessor.Accessor."""
+
+        
     def glob_directory_names(self, glob):
         """Return a sorted list of metric directories matching this glob."""
         super(_CassandraAccessor, self).glob_directory_names(glob)
