@@ -1910,7 +1910,7 @@ class _CassandraAccessor(bg_accessor.Accessor):
                 results = list(response.result_or_exc)
                 if results:
                     continue
-                dir_name = response.result_or_exc.response_future.query.values[0]
+                dir_name = str(response.result_or_exc.response_future.query.values[0])
                 dir_name = dir_name.rpartition('.')[0]
                 log.info("Scheduling delete for empty dir '%s'" % dir_name)
                 PM_DELETED_DIRECTORIES.inc()
