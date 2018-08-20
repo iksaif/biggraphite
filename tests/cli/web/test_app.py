@@ -48,6 +48,10 @@ class TestWebApp(bg_test_utils.TestCaseWithFakeAccessor):
         rv = self.client.post('/api/bgutil/list', json={'arguments': ['*']})
         rv.get_json()
 
+    def test_bgutil_list_async(self):
+        rv = self.client.post('/api/bgutil/async/list', json={'arguments': ['*']})
+        self.assertEqual(rv.status_code, 201)
+
 
 if __name__ == "__main__":
     unittest.main()
